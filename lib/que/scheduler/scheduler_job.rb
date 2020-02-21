@@ -52,16 +52,29 @@ module Que
 
       private
 
+      def enqueue(*args, **kwargs)
+        job_class = args.shift
+
+        if job_class < Que::Job
+          job_class.enqueue(*args, **kwargs)
+        elsif job_class < ActiveJob::Base
+          job_class.perform_later(*args, **kwargs)
+        end
+      end
+
       def check_enqueued_job(enqueued_job, job_class, args, logs)
         if enqueued_job.is_a?(Que::Job)
           job_id = Que::Scheduler::VersionSupport.job_attributes(enqueued_job).fetch(:job_id)
-          logs << "que-scheduler enqueueing #{job_class} #{job_id} with args: #{args}"
-          enqueued_job
+        elsif enqueued_job.is_a?(ActiveJob::Base)
+          job_id = enqueued_job.provider_job_id
         else
           # This can happen if a middleware nixes the enqueue call
-          logs << "que-scheduler called enqueue on #{job_class} but did not receive a #{Que::Job}"
-          nil
+          logs << "que-scheduler tried to enqueue #{job_class} but did not receive a #{Que::Job} nor #{ActiveJob::Base}"
+          return nil
         end
+
+        logs << "que-scheduler enqueueing #{job_class} #{job_id} with args: #{args}"
+        enqueued_job
       end
 
       def enqueue_self_again(scheduler_job_args, last_full_execution, job_dictionary, enqueued_jobs)
